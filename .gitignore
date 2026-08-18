@@ -1,0 +1,8 @@
+.nextflow*
+work/
+results/
+*.sif
+.DS_Store
+conf/site.config
+assets/containers.tsv
+assets/downloads.tsv

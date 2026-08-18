@@ -1,0 +1,9 @@
+# output filename<TAB>container URI
+# Fill in vetted, pinned image URIs before running scripts/pull_containers.sh.
+fastqc.sif	docker://REPLACE_ME/fastqc:PINNED_TAG
+fastp.sif	docker://REPLACE_ME/fastp:PINNED_TAG
+star.sif	docker://REPLACE_ME/star:PINNED_TAG
+samtools.sif	docker://REPLACE_ME/samtools:PINNED_TAG
+kraken2.sif	docker://REPLACE_ME/kraken2:PINNED_TAG
+kaiju.sif	docker://REPLACE_ME/kaiju:PINNED_TAG
+python.sif	docker://REPLACE_ME/python:PINNED_TAG

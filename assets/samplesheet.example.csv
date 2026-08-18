@@ -1,0 +1,2 @@
+sample,fastq_1,fastq_2
+mock01,/shared/data/mock01_R1.fastq.gz,/shared/data/mock01_R2.fastq.gz

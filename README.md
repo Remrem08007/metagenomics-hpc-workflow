@@ -38,7 +38,7 @@ Kraken2 and Kaiju results are reported side-by-side. Their read counts are **not
 - strict host depletion retains only read pairs for which both mates are unmapped from the host reference;
 - no downloads inside ordinary Nextflow analysis processes;
 - local `.sif` containers supplied through `--container_dir`;
-- databases and reference indexes supplied as absolute local paths;
+- databases and reference indexes supplied as absolute shared-filesystem paths and passed by value so Nextflow does not stage/copy large database directories into task work directories;
 - network/proxy use limited to explicit provisioning scripts;
 - generic SLURM configuration with no institution-specific accounts or paths.
 
@@ -101,14 +101,19 @@ nextflow run main.nf \
   --outdir /absolute/path/results
 ```
 
-Cluster-specific account/partition settings belong in an extra local config rather than in the public repository.
+Cluster-specific account/partition settings belong in an extra local config rather than in the public repository. The configured database/reference paths must also be visible inside the Singularity/Apptainer container; on clusters that do not bind shared filesystems automatically, add the required bind options in the site config.
 
 ## Provisioning
 
 Container and archive download helpers are intentionally separate from the analysis DAG:
 
 ```bash
+cp assets/containers.example.tsv assets/containers.tsv
+# edit assets/containers.tsv with vetted, pinned image URIs
 scripts/pull_containers.sh --manifest assets/containers.tsv --output-dir /shared/containers
+
+cp assets/downloads.example.tsv assets/downloads.tsv
+# edit assets/downloads.tsv only if additional HTTPS assets are needed
 scripts/download_archives.sh --manifest assets/downloads.tsv --output-dir /shared/downloads
 ```
 
