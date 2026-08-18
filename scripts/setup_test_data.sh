@@ -90,6 +90,7 @@ python3 "$REPO_ROOT/bin/generate_mock_fastqs.py" \
     --seed 20260818
 
 cp "$REPO_ROOT/tests/expected/biological_expectations.tsv" "$DATA_DIR/expected_taxa.tsv"
+cp "$REPO_ROOT/tests/expected/biological_qc_expectations.tsv" "$DATA_DIR/expected_qc.tsv"
 
 cat > "$OUTPUT_DIR/README.txt" <<EOF
 Mock metagenomics test dataset
@@ -101,8 +102,9 @@ Ground truth:
   $DATA_DIR/ground_truth.tsv
   $DATA_DIR/mixture.tsv
 
-Expected pipeline taxa:
+Expected pipeline results:
   $DATA_DIR/expected_taxa.tsv
+  $DATA_DIR/expected_qc.tsv
 
 Reference provenance:
   human       NC_000001.11:9588911-9614877
@@ -118,3 +120,4 @@ echo "Test data ready: $OUTPUT_DIR"
 echo "Samplesheet:      $DATA_DIR/samplesheet.csv"
 echo "Ground truth:     $DATA_DIR/ground_truth.tsv"
 echo "Expected taxa:    $DATA_DIR/expected_taxa.tsv"
+echo "Expected QC:      $DATA_DIR/expected_qc.tsv"
