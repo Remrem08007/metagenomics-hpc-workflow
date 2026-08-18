@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Merge Kraken2 and Kaiju species summaries side-by-side by NCBI taxid.
 
-This intentionally does not add or average counts across classifiers.
+Counts from the two classifiers are intentionally not added or averaged.
 """
 
 from __future__ import annotations
@@ -21,17 +21,20 @@ def parse_kraken(path: Path) -> dict[int, dict[str, object]]:
             if len(fields) < 6:
                 continue
             percent, clade_reads, taxon_reads, rank, taxid, name = fields[:6]
-            if rank not in {"S", "S1", "S2", "S3"}:
+            if rank.strip() != "S":
                 continue
             try:
-                tid = int(taxid)
+                tid = int(taxid.strip())
+                pct = float(percent.strip())
+                clade = int(clade_reads.strip())
+                direct = int(taxon_reads.strip())
             except ValueError:
                 continue
             taxa[tid] = {
                 "name": name.strip(),
-                "kraken_percent": float(percent),
-                "kraken_clade_reads": int(clade_reads),
-                "kraken_taxon_reads": int(taxon_reads),
+                "kraken_percent": pct,
+                "kraken_clade_reads": clade,
+                "kraken_taxon_reads": direct,
             }
     return taxa
 
@@ -47,10 +50,11 @@ def parse_kaiju(path: Path) -> dict[int, dict[str, object]]:
                 continue
             _source, percent, reads, taxid, name = fields[:5]
             try:
-                tid = int(taxid)
-                pct = float(percent)
-                count = int(reads)
+                tid = int(taxid.strip())
+                pct = float(percent.strip())
+                count = int(reads.strip())
             except ValueError:
+                # Header and non-taxon summary rows are ignored.
                 continue
             taxa[tid] = {
                 "name": name.strip(),
@@ -83,6 +87,7 @@ def main() -> None:
         "kaiju_reads",
     ]
 
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
         writer.writeheader()

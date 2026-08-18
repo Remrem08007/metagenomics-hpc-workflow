@@ -1,8 +1,10 @@
-.nextflow*
 work/
+.nextflow/
+.nextflow.log*
 results/
+test-results/
 *.sif
+*.partial
+__pycache__/
+*.pyc
 .DS_Store
-conf/site.config
-assets/containers.tsv
-assets/downloads.tsv

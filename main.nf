@@ -1,24 +1,45 @@
 #!/usr/bin/env nextflow
 
-include { FASTQC } from './modules/fastqc'
-include { FASTP } from './modules/fastp'
-include { STAR_HOST_ALIGN } from './modules/star_host_depletion'
-include { EXTRACT_NONHOST_PAIRS } from './modules/extract_nonhost_pairs'
-include { KRAKEN2_CLASSIFY } from './modules/kraken2'
-include { KAIJU_CLASSIFY } from './modules/kaiju'
-include { MERGE_TAXONOMY } from './modules/merge_taxonomy'
+nextflow.enable.dsl = 2
+
+include { FASTQC }                  from './modules/fastqc'
+include { FASTP }                   from './modules/fastp'
+include { STAR_HOST_ALIGN }         from './modules/star_host_depletion'
+include { EXTRACT_NONHOST_PAIRS }   from './modules/extract_nonhost_pairs'
+include { VALIDATE_STAR_DEPLETION } from './modules/validate_star_depletion'
+include { KRAKEN2_CLASSIFY }        from './modules/kraken2'
+include { VALIDATE_KRAKEN_HUMAN }   from './modules/validate_kraken_human'
+include { KAIJU_CLASSIFY }          from './modules/kaiju'
+include { MERGE_TAXONOMY }          from './modules/merge_taxonomy'
+include { COLLECT_TAXONOMY }        from './modules/collect_taxonomy'
 
 params.input         = null
 params.outdir        = 'results'
 params.host_index    = null
 params.kraken2_db    = null
 params.kaiju_db      = null
-params.kaiju_fmi     = 'kaiju_db.fmi'
+params.kaiju_fmi     = null
 params.container_dir = null
+
+params.fastp_min_length                = 35
+params.fastp_qualified_quality_phred   = 15
+params.fastp_unqualified_percent_limit = 40
+params.fastp_cut_mean_quality          = 20
+
+params.star_multimap_max              = 100
+params.star_anchor_multimap_max       = 200
+params.star_mismatch_ratio_max        = 0.10
+params.star_score_min_over_read       = 0.50
+params.star_match_min_over_read       = 0.50
+
+params.max_star_unmapped_pct = -1
+params.max_kraken_human_pct  = -1
+params.human_taxid           = 9606
+params.kaiju_expand_viruses  = true
 
 
 def requireParam(name, value) {
-    if (!value) {
+    if (value == null || value.toString().trim() == '') {
         error "Missing required parameter: --${name}"
     }
 }
@@ -32,9 +53,20 @@ def requireAbsolutePath(name, value) {
 }
 
 
+def resolveReadPath(sheetDir, String value) {
+    def raw = java.nio.file.Paths.get(value)
+    def resolved = raw.isAbsolute() ? raw : sheetDir.resolve(raw).normalize()
+    return file(resolved.toString(), checkIfExists: true)
+}
+
+
 def samplesheetChannel(String samplesheet) {
+    def sheetPath = file(samplesheet, checkIfExists: true)
+    def sheetDir = sheetPath.parent
+    def seen = [] as Set
+
     return Channel
-        .fromPath(samplesheet, checkIfExists: true)
+        .fromPath(sheetPath)
         .splitCsv(header: true)
         .map { row ->
             def sample = row.sample?.toString()?.trim()
@@ -44,14 +76,17 @@ def samplesheetChannel(String samplesheet) {
             if (!sample || !r1 || !r2) {
                 error "Samplesheet requires non-empty columns: sample,fastq_1,fastq_2"
             }
-            if (sample.contains(' ')) {
-                error "Sample identifiers may not contain spaces: '${sample}'"
+            if (!(sample ==~ /[A-Za-z0-9_.-]+/)) {
+                error "Invalid sample identifier '${sample}'. Allowed: letters, numbers, '.', '_' and '-'."
+            }
+            if (!seen.add(sample)) {
+                error "Duplicate sample identifier in samplesheet: '${sample}'"
             }
 
             tuple(
                 [id: sample],
-                file(r1, checkIfExists: true),
-                file(r2, checkIfExists: true)
+                resolveReadPath(sheetDir, r1),
+                resolveReadPath(sheetDir, r2)
             )
         }
 }
@@ -65,20 +100,36 @@ workflow {
 
     samples_ch = samplesheetChannel(params.input)
 
-    qc_ch = samples_ch.map { meta, r1, r2 -> tuple(meta, [r1, r2]) }
-    FASTQC(qc_ch)
+    raw_qc_ch = samples_ch.map { meta, r1, r2 -> tuple(meta, [r1, r2]) }
+    FASTQC(raw_qc_ch)
 
     FASTP(samples_ch)
     STAR_HOST_ALIGN(FASTP.out.reads, params.host_index)
-    EXTRACT_NONHOST_PAIRS(STAR_HOST_ALIGN.out.bam)
+    EXTRACT_NONHOST_PAIRS(STAR_HOST_ALIGN.out.alignment)
 
-    nonhost_ch = EXTRACT_NONHOST_PAIRS.out.reads
+    validator = file("${projectDir}/bin/validate_host_depletion.py", checkIfExists: true)
+    VALIDATE_STAR_DEPLETION(EXTRACT_NONHOST_PAIRS.out.reads_with_log, validator)
+
+    nonhost_ch = VALIDATE_STAR_DEPLETION.out.reads
     KRAKEN2_CLASSIFY(nonhost_ch, params.kraken2_db)
     KAIJU_CLASSIFY(nonhost_ch, params.kaiju_db)
 
-    taxonomy_ch = KRAKEN2_CLASSIFY.out.report
-        .join(KAIJU_CLASSIFY.out.summary)
-        .map { meta, kraken_report, kaiju_summary -> tuple(meta, kraken_report, kaiju_summary) }
+    VALIDATE_KRAKEN_HUMAN(KRAKEN2_CLASSIFY.out.report, validator)
 
-    MERGE_TAXONOMY(taxonomy_ch)
+    kraken_species_ch = VALIDATE_KRAKEN_HUMAN.out.report
+        .map { meta, kraken_report -> tuple(meta.id, meta, kraken_report) }
+
+    kaiju_species_ch = KAIJU_CLASSIFY.out.summary
+        .map { meta, kaiju_summary -> tuple(meta.id, kaiju_summary) }
+
+    taxonomy_ch = kraken_species_ch
+        .join(kaiju_species_ch)
+        .map { sample_id, meta, kraken_report, kaiju_summary ->
+            tuple(meta, kraken_report, kaiju_summary)
+        }
+
+    merge_script = file("${projectDir}/bin/merge_taxonomy.py", checkIfExists: true)
+    MERGE_TAXONOMY(taxonomy_ch, merge_script)
+
+    COLLECT_TAXONOMY(MERGE_TAXONOMY.out.table.map { meta, table -> table }.collect())
 }

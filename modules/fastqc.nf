@@ -2,7 +2,7 @@ process FASTQC {
     tag "${meta.id}"
     label 'small'
 
-    publishDir "${params.outdir}/qc/fastqc", mode: 'copy'
+    publishDir { "${params.outdir}/qc/fastqc/${meta.id}" }, mode: 'copy', overwrite: true
 
     input:
     tuple val(meta), path(reads)
@@ -13,6 +13,18 @@ process FASTQC {
 
     script:
     """
+    set -euo pipefail
     fastqc --threads ${task.cpus} ${reads.join(' ')}
+    """
+
+    stub:
+    """
+    for read in ${reads.join(' ')}; do
+        base=\$(basename "\$read")
+        base=\${base%.gz}
+        base=\${base%.fastq}
+        base=\${base%.fq}
+        touch "\${base}_fastqc.html" "\${base}_fastqc.zip"
+    done
     """
 }
