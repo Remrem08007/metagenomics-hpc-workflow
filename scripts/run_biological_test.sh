@@ -32,8 +32,7 @@ Usage:
 TEST_DIR must have been created by scripts/setup_test_data.sh.
 
 The script runs the real workflow with containers and databases, then checks the
-observed taxonomy and host-depletion QC against the repository's biological
-expectations.
+observed taxonomy and host-depletion QC against the bundled biological expectations.
 USAGE
 }
 
@@ -67,9 +66,11 @@ REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TEST_DIR=$(realpath "$TEST_DIR")
 SAMPLESHEET="$TEST_DIR/data/samplesheet.csv"
 EXPECTED="$TEST_DIR/data/expected_taxa.tsv"
+EXPECTED_QC="$TEST_DIR/data/expected_qc.tsv"
 
 [[ -s "$SAMPLESHEET" ]] || { echo "Missing test samplesheet: $SAMPLESHEET" >&2; exit 1; }
 [[ -s "$EXPECTED" ]] || { echo "Missing expected taxa file: $EXPECTED" >&2; exit 1; }
+[[ -s "$EXPECTED_QC" ]] || { echo "Missing expected QC file: $EXPECTED_QC" >&2; exit 1; }
 
 cmd=(
     "$REPO_ROOT/scripts/run_pipeline.sh"
@@ -91,4 +92,5 @@ cmd=(
 python3 "$REPO_ROOT/bin/validate_test_run.py" \
     --results "$OUTDIR" \
     --expected "$EXPECTED" \
+    --expected-qc "$EXPECTED_QC" \
     --sample mock-community
