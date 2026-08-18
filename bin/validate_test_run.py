@@ -59,7 +59,7 @@ def main() -> None:
     for expected in expected_rows:
         taxid = expected["taxid"]
         row = taxonomy.get(taxid)
-        min_kraken = int(expected.get("min_kraken_taxon_reads", "0") or 0)
+        min_kraken = int(expected.get("min_kraken_clade_reads", "0") or 0)
         min_kaiju = int(expected.get("min_kaiju_reads", "0") or 0)
         if row is None:
             if min_kraken > 0 or min_kaiju > 0:
@@ -68,11 +68,11 @@ def main() -> None:
                 )
             continue
 
-        kraken_reads = int(float(row.get("kraken_taxon_reads") or 0))
+        kraken_reads = int(float(row.get("kraken_clade_reads") or 0))
         kaiju_reads = int(float(row.get("kaiju_reads") or 0))
         if kraken_reads < min_kraken:
             failures.append(
-                f"taxid {taxid} Kraken2 reads {kraken_reads} < expected minimum {min_kraken}"
+                f"taxid {taxid} Kraken2 clade reads {kraken_reads} < expected minimum {min_kraken}"
             )
         if kaiju_reads < min_kaiju:
             failures.append(
