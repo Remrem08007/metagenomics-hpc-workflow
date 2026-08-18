@@ -49,6 +49,7 @@ Kraken2 and Kaiju counts are reported **side-by-side**, not added together, beca
 - large databases remain on shared storage instead of being staged into task work directories;
 - `local`/`slurm` execution profiles plus explicit `singularity`/`apptainer` container profiles;
 - resumable runner and small SLURM orchestration wrapper;
+- deterministic test data, ground truth, expected outputs and CI fixtures;
 - no lab/project-specific paths, sample conventions, or biological interpretation logic.
 
 ## Requirements
@@ -66,21 +67,23 @@ For production runs:
 
 ## 1. Pull containers
 
-Run where registry access is available (your proxy environment can be used):
+Run where registry access is available. `HTTPS_PROXY` / `https_proxy` are inherited when configured:
 
 ```bash
-scripts/pull_containers.sh \
+bash scripts/pull_containers.sh \
   --output-dir "$SCRATCH/metagenomics_containers"
 ```
+
+On module-based clusters the helper tries to load Apptainer automatically when it is not already on `PATH`.
 
 Container tags are pinned in [`assets/containers.tsv`](assets/containers.tsv).
 
 ## 2. Prepare databases
 
-A helper is provided for the same broad database families used by the workflow design:
+A helper is provided for the broad database families used by the workflow design:
 
 ```bash
-scripts/download_databases.sh \
+bash scripts/download_databases.sh \
   --root "$SCRATCH/metagenomics_databases" \
   --kraken pluspf \
   --kaiju nr_euk
@@ -101,7 +104,62 @@ $SCRATCH/metagenomics_databases/
 
 You may use any compatible database instead by passing its absolute path.
 
-## 3. Samplesheet
+## 3. Recommended first run: reproducible mock community
+
+You do **not** need to find your own FASTQs to test the repository.
+
+Generate the supplied biological test dataset:
+
+```bash
+bash scripts/setup_test_data.sh \
+  --output-dir "$SCRATCH/metagenomics_test"
+```
+
+The script downloads small, versioned RefSeq segments over HTTPS and generates a deterministic 100-pair mixture:
+
+- 40 human GRCh38 pairs;
+- 30 *Escherichia coli* pairs;
+- 20 *Saccharomyces cerevisiae* pairs;
+- 10 influenza A pairs.
+
+It creates the FASTQs, a ready-to-use samplesheet, a per-read ground-truth table, the mixture definition, and expected taxonomic results:
+
+```text
+$SCRATCH/metagenomics_test/
+├── README.txt
+├── references/
+└── data/
+    ├── mock-community_R1.fastq.gz
+    ├── mock-community_R2.fastq.gz
+    ├── samplesheet.csv
+    ├── ground_truth.tsv
+    ├── mixture.tsv
+    └── expected_taxa.tsv
+```
+
+Once containers, databases and your GRCh38 STAR index are available, run and validate the complete biological smoke test with one command:
+
+```bash
+bash scripts/run_biological_test.sh \
+  --test-dir "$SCRATCH/metagenomics_test" \
+  --host-index "$SCRATCH/references/GRCh38_STAR" \
+  --kraken2-db "$SCRATCH/metagenomics_databases/kraken2/pluspf" \
+  --kaiju-db "$SCRATCH/metagenomics_databases/kaiju/nr_euk" \
+  --container-dir "$SCRATCH/metagenomics_containers" \
+  --outdir "$SCRATCH/metagenomics_test_results"
+```
+
+A successful validated run ends with:
+
+```text
+BIOLOGICAL TEST: PASS
+```
+
+See [`docs/testing.md`](docs/testing.md) for the exact ground truth and validation rules.
+
+## 4. Samplesheet for your own data
+
+For normal analyses, provide:
 
 ```csv
 sample,fastq_1,fastq_2
@@ -109,7 +167,7 @@ sample01,/data/sample01_R1.fastq.gz,/data/sample01_R2.fastq.gz
 sample02,/data/sample02_R1.fastq.gz,/data/sample02_R2.fastq.gz
 ```
 
-Relative FASTQ paths are resolved relative to the samplesheet directory. Sample identifiers must be unique and may contain letters, numbers, `.`, `_`, and `-`.
+The `/data/...` paths above are examples only. Replace them with real paths on your system. Relative FASTQ paths are resolved relative to the samplesheet directory. Sample identifiers must be unique and may contain letters, numbers, `.`, `_`, and `-`.
 
 Validate before running:
 
@@ -117,10 +175,10 @@ Validate before running:
 python3 bin/validate_samplesheet.py --input samplesheet.csv
 ```
 
-## 4. Preflight assets
+## 5. Preflight assets
 
 ```bash
-scripts/verify_assets.sh \
+bash scripts/verify_assets.sh \
   --container-dir "$SCRATCH/metagenomics_containers" \
   --host-index "$SCRATCH/references/GRCh38_STAR" \
   --kraken2-db "$SCRATCH/metagenomics_databases/kraken2/pluspf" \
@@ -129,12 +187,12 @@ scripts/verify_assets.sh \
 
 Add `--check-tools` to execute a lightweight version check inside each `.sif`.
 
-## 5. Run on SLURM
+## 6. Run on SLURM
 
 The recommended interface is the resumable wrapper:
 
 ```bash
-scripts/run_pipeline.sh \
+bash scripts/run_pipeline.sh \
   --profile slurm \
   --engine auto \
   --input /absolute/path/samplesheet.csv \
@@ -160,7 +218,7 @@ sbatch scripts/submit_pipeline.sbatch \
 No account or partition is hard-coded. Add site settings in an extra config, for example:
 
 ```bash
-scripts/run_pipeline.sh ... --config conf/my_cluster.config
+bash scripts/run_pipeline.sh ... --config conf/my_cluster.config
 ```
 
 See [`assets/cluster.config.example`](assets/cluster.config.example).
@@ -172,7 +230,7 @@ The workflow always writes STAR and Kraken2 host-QC tables. Threshold enforcemen
 Enable thresholds when appropriate:
 
 ```bash
-scripts/run_pipeline.sh ... \
+bash scripts/run_pipeline.sh ... \
   --max-star-unmapped-pct <study-specific-percent> \
   --max-kraken-human-pct <study-specific-percent>
 ```
@@ -210,17 +268,39 @@ results/
     └── pipeline_dag.html
 ```
 
-## Test the workflow wiring
+## Test layers and expected outputs
 
-The repository includes a tiny stub profile that tests channel wiring without bioinformatics databases or containers:
+The repository deliberately has two test levels.
+
+### Exact CI/stub outputs
 
 ```bash
 nextflow run main.nf -profile test -stub-run
 ```
 
+GitHub Actions compares the generated stub outputs byte-for-byte against files under:
+
+```text
+tests/expected/stub/
+```
+
+This catches changes to pipeline wiring and output contracts.
+
+### Biological expectations
+
+The mock-community test uses real containers and databases. Exact classifier counts are not forced because Kraken2 and Kaiju use different algorithms and database structures. Instead, `bin/validate_test_run.py` checks predefined biological invariants from:
+
+```text
+tests/expected/biological_expectations.tsv
+```
+
+The current test requires *E. coli* and *S. cerevisiae* to be detected by both classifiers, influenza A to be recovered by Kraken2, the STAR residual fraction to match the known 40% host / 60% non-host mixture within tolerance, and residual human Kraken2 signal to remain low.
+
+See [`docs/testing.md`](docs/testing.md) for details.
+
 ## Restricted-network execution
 
-See [`docs/offline-hpc.md`](docs/offline-hpc.md). The analysis DAG performs no network downloads. Container and database downloads are explicit provisioning steps run beforehand.
+See [`docs/offline-hpc.md`](docs/offline-hpc.md). The analysis DAG performs no network downloads. Container, database, and test-reference downloads are explicit provisioning steps run beforehand.
 
 ## Resource model
 

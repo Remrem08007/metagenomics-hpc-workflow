@@ -13,30 +13,6 @@ include { KAIJU_CLASSIFY }          from './modules/kaiju'
 include { MERGE_TAXONOMY }          from './modules/merge_taxonomy'
 include { COLLECT_TAXONOMY }        from './modules/collect_taxonomy'
 
-params.input         = null
-params.outdir        = 'results'
-params.host_index    = null
-params.kraken2_db    = null
-params.kaiju_db      = null
-params.kaiju_fmi     = null
-params.container_dir = null
-
-params.fastp_min_length                = 35
-params.fastp_qualified_quality_phred   = 15
-params.fastp_unqualified_percent_limit = 40
-params.fastp_cut_mean_quality          = 20
-
-params.star_multimap_max              = 100
-params.star_anchor_multimap_max       = 200
-params.star_mismatch_ratio_max        = 0.10
-params.star_score_min_over_read       = 0.50
-params.star_match_min_over_read       = 0.50
-
-params.max_star_unmapped_pct = -1
-params.max_kraken_human_pct  = -1
-params.human_taxid           = 9606
-params.kaiju_expand_viruses  = true
-
 
 def requireParam(name, value) {
     if (value == null || value.toString().trim() == '') {
