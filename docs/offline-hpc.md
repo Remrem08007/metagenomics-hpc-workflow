@@ -1,54 +1,54 @@
 # Offline / restricted-network HPC execution
 
-The analysis DAG is designed so that submitted SLURM tasks do not require internet access.
+The analysis workflow is designed so that submitted compute tasks do **not** need internet access.
 
-## Required before a run
+## Provisioning versus analysis
 
-Stage the following on storage visible from the compute nodes:
+Provisioning is explicit and separate:
 
-1. the pipeline checkout;
-2. pre-pulled Singularity/Apptainer `.sif` images;
-3. a STAR host genome index;
-4. a Kraken2 database;
-5. a Kaiju database containing an `.fmi` index plus `nodes.dmp` and `names.dmp`;
-6. the input FASTQ files.
+1. pull the required Singularity/Apptainer images;
+2. download or stage Kraken2 and Kaiju databases;
+3. stage/build the host STAR index;
+4. run `scripts/verify_assets.sh`;
+5. launch Nextflow from the local repository checkout.
 
-The workflow points each process at an absolute local `.sif` path. This avoids Nextflow trying to pull or convert a registry image when a task starts.
+The provisioning scripts inherit `HTTPS_PROXY` and `https_proxy`, so they can be used from an environment where outbound HTTPS is available through a proxy.
 
-Large STAR, Kraken2, and Kaiju directories are passed to processes as path strings rather than Nextflow `path` inputs, so Nextflow does not stage/copy those databases into every task directory. Those shared-filesystem locations therefore need to be visible inside the container runtime. If your cluster does not bind them automatically, add Singularity/Apptainer bind options in the site-specific config.
+The Nextflow DAG itself contains no `curl`, `wget`, registry pulls, NCBI API calls, or remote pipeline/module dependencies.
 
-## Proxy-aware provisioning
+## Containers
 
-Provisioning helpers may access HTTPS resources and inherit proxy variables such as:
-
-```bash
-export HTTPS_PROXY='http://proxy.example:port'
-export https_proxy="$HTTPS_PROXY"
-```
-
-No proxy address is stored in the repository.
-
-## Site-specific SLURM settings
-
-`conf/slurm.config` intentionally does not hard-code account, partition, queue, or cluster-specific paths. Add them in a private/site config:
-
-```groovy
-process {
-    queue = 'your_partition'
-    clusterOptions = '--account=your_account'
-}
-```
-
-Run with:
+Pull once:
 
 ```bash
-nextflow run main.nf \
-  -profile slurm \
-  -c conf/my_cluster.config \
-  --input /absolute/path/samplesheet.csv \
-  --container_dir /absolute/path/containers \
-  --host_index /absolute/path/star_index \
-  --kraken2_db /absolute/path/kraken2_db \
-  --kaiju_db /absolute/path/kaiju_db \
-  --outdir /absolute/path/results
+scripts/pull_containers.sh \
+  --output-dir "$SCRATCH/metagenomics_containers"
 ```
+
+Then pass that directory to every run:
+
+```bash
+--container-dir "$SCRATCH/metagenomics_containers"
+```
+
+The workflow refers directly to local `.sif` files. Nextflow is therefore not expected to contact a container registry from a compute node.
+
+## Large reference directories
+
+The STAR, Kraken2 and Kaiju database directories are kept on shared storage and passed as absolute paths. The Singularity configuration explicitly binds those directories into each container rather than staging hundreds of gigabytes into individual Nextflow work directories.
+
+## Launch pattern
+
+Load Nextflow and Singularity/Apptainer in the submission environment, then use the small orchestration job. The runner detects the available container command and selects the matching Nextflow profile:
+
+```bash
+sbatch scripts/submit_pipeline.sbatch \
+  --input /path/samplesheet.csv \
+  --host-index /shared/ref/GRCh38_STAR \
+  --kraken2-db /shared/db/kraken2/pluspf \
+  --kaiju-db /shared/db/kaiju/nr_euk \
+  --container-dir /shared/containers \
+  --outdir /shared/results/run01
+```
+
+The orchestration job runs Nextflow; Nextflow submits the computational processes as separate SLURM jobs.

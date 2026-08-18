@@ -1,0 +1,5 @@
+// Site-specific settings are intentionally kept outside the public defaults.
+process {
+    // queue = 'compute'
+    // clusterOptions = '--account=your_allocation'
+}
