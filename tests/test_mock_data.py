@@ -91,6 +91,12 @@ class MockDataTests(unittest.TestCase):
                 "4932\tSaccharomyces cerevisiae\t1\t1\n"
                 "11320\tInfluenza A virus\t1\t0\n"
             )
+            expected_qc = tmp / "expected_qc.tsv"
+            expected_qc.write_text(
+                "metric\tminimum\tmaximum\tnote\n"
+                "star_residual_pct\t45\t75\tfixture\n"
+                "kraken_human_pct\t0\t5\tfixture\n"
+            )
 
             subprocess.run(
                 [
@@ -100,6 +106,8 @@ class MockDataTests(unittest.TestCase):
                     str(results),
                     "--expected",
                     str(expected),
+                    "--expected-qc",
+                    str(expected_qc),
                 ],
                 check=True,
             )
