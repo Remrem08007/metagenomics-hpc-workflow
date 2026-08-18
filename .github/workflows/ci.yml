@@ -42,6 +42,9 @@ jobs:
             tests/expected/stub/stub.taxonomy_comparison.tsv \
             test-results/taxonomy/per_sample/stub.taxonomy_comparison.tsv
           diff -u \
+            tests/expected/stub/all_samples.taxonomy_comparison.tsv \
+            test-results/taxonomy/all_samples.taxonomy_comparison.tsv
+          diff -u \
             tests/expected/stub/stub.star_host_depletion_qc.tsv \
             test-results/host_depletion/stub/stub.star_host_depletion_qc.tsv
           diff -u \
