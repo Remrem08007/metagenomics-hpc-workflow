@@ -63,7 +63,8 @@ $SCRATCH/metagenomics_test/
     ├── samplesheet.csv
     ├── ground_truth.tsv
     ├── mixture.tsv
-    └── expected_taxa.tsv
+    ├── expected_taxa.tsv
+    └── expected_qc.tsv
 ```
 
 `ground_truth.tsv` records the source, taxid, accession and reference coordinate for
@@ -82,13 +83,18 @@ The current expectations require:
 - Influenza A taxid `11320` detected by Kraken2;
 - STAR residual/unmapped percentage between 45% and 75% for the 40% host / 60%
   non-host mixture;
-- residual human abundance in the Kraken2 report no greater than 5%.
+- residual human abundance in the Kraken2 report between 0% and 5%.
 
-The checked-in expectation table is:
+The checked-in expectation fixtures are:
 
 ```text
 tests/expected/biological_expectations.tsv
+tests/expected/biological_qc_expectations.tsv
 ```
+
+Kraken2 expectations use species-level **clade reads**, not only direct reads, so a
+read assigned to a strain below the expected species still counts as recovery of that
+species.
 
 Influenza is not currently required to appear at taxid `11320` in the Kaiju species
 summary because viral classifications may be reported at a more specific viral taxon
@@ -100,6 +106,18 @@ After containers, the host STAR index and the Kraken2/Kaiju databases are staged
 
 ```bash
 bash scripts/run_biological_test.sh \
+  --test-dir "$SCRATCH/metagenomics_test" \
+  --host-index "$SCRATCH/references/GRCh38_STAR" \
+  --kraken2-db "$SCRATCH/metagenomics_databases/kraken2/pluspf" \
+  --kaiju-db "$SCRATCH/metagenomics_databases/kaiju/nr_euk" \
+  --container-dir "$SCRATCH/metagenomics_containers" \
+  --outdir "$SCRATCH/metagenomics_test_results"
+```
+
+Or keep the Nextflow controller off the login node:
+
+```bash
+sbatch scripts/submit_biological_test.sbatch \
   --test-dir "$SCRATCH/metagenomics_test" \
   --host-index "$SCRATCH/references/GRCh38_STAR" \
   --kraken2-db "$SCRATCH/metagenomics_databases/kraken2/pluspf" \
