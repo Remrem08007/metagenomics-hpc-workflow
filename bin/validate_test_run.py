@@ -15,17 +15,35 @@ def as_float(value, default=0.0):
     return float(value)
 
 
+def load_qc_expectations(path: Path):
+    expectations = {}
+    for row in read_tsv(path):
+        expectations[row["metric"]] = {
+            "minimum": as_float(row.get("minimum"), float("-inf")),
+            "maximum": as_float(row.get("maximum"), float("inf")),
+        }
+    required = {"star_residual_pct", "kraken_human_pct"}
+    missing = required - set(expectations)
+    if missing:
+        raise ValueError(
+            "Missing QC expectation metric(s): " + ", ".join(sorted(missing))
+        )
+    return expectations
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Validate a biological mock-community pipeline run."
     )
     parser.add_argument("--results", required=True)
     parser.add_argument("--expected", required=True)
+    parser.add_argument("--expected-qc", required=True)
     parser.add_argument("--sample", default="mock-community")
     args = parser.parse_args()
 
     results = Path(args.results)
     expected_rows = read_tsv(Path(args.expected))
+    qc_expected = load_qc_expectations(Path(args.expected_qc))
     taxonomy_path = (
         results
         / "taxonomy"
@@ -86,13 +104,19 @@ def main() -> None:
     else:
         residual = as_float(star_rows[0]["residual_pct"])
         human_pct = as_float(human_rows[0]["human_pct"])
-        if not 45.0 <= residual <= 75.0:
+
+        star_min = qc_expected["star_residual_pct"]["minimum"]
+        star_max = qc_expected["star_residual_pct"]["maximum"]
+        if not star_min <= residual <= star_max:
             failures.append(
-                f"STAR residual_pct {residual:.3f} outside expected mock range 45-75%"
+                f"STAR residual_pct {residual:.3f} outside expected range {star_min:g}-{star_max:g}%"
             )
-        if human_pct > 5.0:
+
+        human_min = qc_expected["kraken_human_pct"]["minimum"]
+        human_max = qc_expected["kraken_human_pct"]["maximum"]
+        if not human_min <= human_pct <= human_max:
             failures.append(
-                f"Kraken2 residual human_pct {human_pct:.3f} exceeds expected maximum 5%"
+                f"Kraken2 residual human_pct {human_pct:.3f} outside expected range {human_min:g}-{human_max:g}%"
             )
 
     if failures:
