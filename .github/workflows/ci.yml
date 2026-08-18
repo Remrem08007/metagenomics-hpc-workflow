@@ -23,6 +23,7 @@ jobs:
 
       - name: Shell syntax
         run: |
+          bash -n scripts/lib/module_utils.sh
           bash -n scripts/pull_containers.sh
           bash -n scripts/download_databases.sh
           bash -n scripts/verify_assets.sh

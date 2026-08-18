@@ -8,10 +8,16 @@ Usage: pull_containers.sh [--manifest FILE] --output-dir DIR [--force]
 Default manifest: assets/containers.tsv
 The script inherits HTTPS_PROXY/https_proxy from the environment.
 Run this before starting the Nextflow workflow; compute jobs use only the local .sif files.
+
+On module-based HPC systems, the script will try `module load apptainer`
+when no container runtime is already available on PATH.
 USAGE
 }
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=scripts/lib/module_utils.sh
+source "$REPO_ROOT/scripts/lib/module_utils.sh"
+
 MANIFEST="$REPO_ROOT/assets/containers.tsv"
 OUTPUT_DIR=""
 FORCE=0
@@ -31,14 +37,17 @@ done
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR=$(realpath "$OUTPUT_DIR")
 
-if command -v apptainer >/dev/null 2>&1; then
+if try_load_module_for apptainer apptainer; then
     RUNTIME=apptainer
-elif command -v singularity >/dev/null 2>&1; then
+elif try_load_module_for singularity singularity; then
     RUNTIME=singularity
 else
     echo "Neither apptainer nor singularity is available." >&2
+    echo "On Alliance clusters, try: module load apptainer" >&2
     exit 1
 fi
+
+echo "Using container runtime: $RUNTIME ($($RUNTIME --version 2>/dev/null || true))"
 
 while IFS=$'\t' read -r name uri rest; do
     [[ -z "${name:-}" || "$name" == \#* ]] && continue

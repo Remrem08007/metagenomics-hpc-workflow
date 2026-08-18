@@ -36,6 +36,8 @@ Usage:
     [--check-tools]
 
 The run is resumable and performs no network downloads.
+On module-based HPC systems, missing Nextflow/Apptainer executables are loaded
+on a best-effort basis before execution.
 USAGE
 }
 
@@ -67,6 +69,9 @@ done
 [[ "$ENGINE" =~ ^(auto|singularity|apptainer)$ ]] || { echo "--engine must be auto, singularity or apptainer" >&2; exit 2; }
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=scripts/lib/module_utils.sh
+source "$REPO_ROOT/scripts/lib/module_utils.sh"
+
 INPUT=$(realpath "$INPUT")
 HOST_INDEX=$(realpath "$HOST_INDEX")
 KRAKEN2_DB=$(realpath "$KRAKEN2_DB")
@@ -81,19 +86,24 @@ if [[ -n "$CONFIG" ]]; then
   [[ -s "$CONFIG" ]] || { echo "Config not found: $CONFIG" >&2; exit 1; }
 fi
 
-command -v nextflow >/dev/null || { echo "nextflow is not available on PATH" >&2; exit 1; }
+try_load_module_for nextflow nextflow || {
+  echo "nextflow is not available on PATH and could not be loaded as a module." >&2
+  exit 1
+}
 command -v python3 >/dev/null || { echo "python3 is not available on PATH" >&2; exit 1; }
+
 if [[ "$ENGINE" == "auto" ]]; then
-  if command -v singularity >/dev/null 2>&1; then
-    ENGINE=singularity
-  elif command -v apptainer >/dev/null 2>&1; then
+  if try_load_module_for apptainer apptainer; then
     ENGINE=apptainer
+  elif try_load_module_for singularity singularity; then
+    ENGINE=singularity
   else
-    echo "Neither singularity nor apptainer is available on PATH." >&2
+    echo "Neither singularity nor apptainer is available on PATH or through modules." >&2
+    echo "On Alliance clusters, try: module load apptainer" >&2
     exit 1
   fi
-elif ! command -v "$ENGINE" >/dev/null 2>&1; then
-  echo "$ENGINE is not available on PATH." >&2
+elif ! try_load_module_for "$ENGINE" "$ENGINE"; then
+  echo "$ENGINE is not available on PATH and could not be loaded as a module." >&2
   exit 1
 fi
 
