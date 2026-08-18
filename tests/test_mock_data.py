@@ -72,9 +72,9 @@ class MockDataTests(unittest.TestCase):
 
             (taxonomy / "mock-community.taxonomy_comparison.tsv").write_text(
                 "sample\ttaxid\tname\tkraken_percent\tkraken_clade_reads\tkraken_taxon_reads\tkaiju_percent\tkaiju_reads\n"
-                "mock-community\t562\tEscherichia coli\t30\t30\t25\t25\t20\n"
-                "mock-community\t4932\tSaccharomyces cerevisiae\t20\t20\t18\t18\t15\n"
-                "mock-community\t11320\tInfluenza A virus\t10\t10\t8\t0\t0\n"
+                "mock-community\t562\tEscherichia coli\t30\t30\t0\t25\t20\n"
+                "mock-community\t4932\tSaccharomyces cerevisiae\t20\t20\t0\t18\t15\n"
+                "mock-community\t11320\tInfluenza A virus\t10\t10\t0\t0\t0\n"
             )
             (star / "mock-community.star_host_depletion_qc.tsv").write_text(
                 "sample\tinput_reads\tresidual_pct\tthreshold_pct\tstatus\n"
@@ -86,7 +86,7 @@ class MockDataTests(unittest.TestCase):
             )
             expected = tmp / "expected.tsv"
             expected.write_text(
-                "taxid\tname\tmin_kraken_taxon_reads\tmin_kaiju_reads\n"
+                "taxid\tname\tmin_kraken_clade_reads\tmin_kaiju_reads\n"
                 "562\tEscherichia coli\t1\t1\n"
                 "4932\tSaccharomyces cerevisiae\t1\t1\n"
                 "11320\tInfluenza A virus\t1\t0\n"
