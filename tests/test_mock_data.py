@@ -68,7 +68,7 @@ class MockDataTests(unittest.TestCase):
             self.assertEqual(accession_start, 1001 + local_start - 1)
             self.assertEqual(accession_end, accession_start + 350 - 1)
 
-    def test_biological_validator_passes_expected_fixture(self):
+    def test_biological_validator_supports_classifier_specific_taxids(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             results = tmp / "results"
@@ -83,7 +83,8 @@ class MockDataTests(unittest.TestCase):
                 "sample\ttaxid\tname\tkraken_percent\tkraken_clade_reads\tkraken_taxon_reads\tkaiju_percent\tkaiju_reads\n"
                 "mock-community\t562\tEscherichia coli\t30\t30\t0\t25\t20\n"
                 "mock-community\t4932\tSaccharomyces cerevisiae\t20\t20\t0\t18\t15\n"
-                "mock-community\t11320\tInfluenza A virus\t10\t10\t0\t0\t0\n"
+                "mock-community\t11320\tInfluenza A virus\t\t\t\t16.7\t10\n"
+                "mock-community\t2955291\tAlphainfluenzavirus influenzae\t16.7\t10\t0\t\t\n"
             )
             (star / "mock-community.star_host_depletion_qc.tsv").write_text(
                 "sample\tinput_reads\tresidual_pct\tthreshold_pct\tstatus\n"
@@ -91,14 +92,14 @@ class MockDataTests(unittest.TestCase):
             )
             (kraken / "mock-community.kraken_human_qc.tsv").write_text(
                 "sample\thuman_taxid\thuman_pct\tthreshold_pct\tstatus\n"
-                "mock-community\t9606\t0\tNA\tPASS\n"
+                "mock-community\t9606\tNA\tNA\tNOT_FOUND\n"
             )
             expected = tmp / "expected.tsv"
             expected.write_text(
-                "taxid\tname\tmin_kraken_clade_reads\tmin_kaiju_reads\n"
-                "562\tEscherichia coli\t1\t1\n"
-                "4932\tSaccharomyces cerevisiae\t1\t1\n"
-                "11320\tInfluenza A virus\t1\t0\n"
+                "source\tname\tkraken_taxid\tmin_kraken_clade_reads\tkaiju_taxid\tmin_kaiju_reads\n"
+                "ecoli\tEscherichia coli\t562\t1\t562\t1\n"
+                "yeast\tSaccharomyces cerevisiae\t4932\t1\t4932\t1\n"
+                "influenza_a\tInfluenza A virus\t2955291\t1\t11320\t1\n"
             )
             expected_qc = tmp / "expected_qc.tsv"
             expected_qc.write_text(
