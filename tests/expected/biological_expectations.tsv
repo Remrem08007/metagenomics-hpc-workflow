@@ -1,4 +1,4 @@
-taxid	name	min_kraken_clade_reads	min_kaiju_reads
-562	Escherichia coli	1	1
-4932	Saccharomyces cerevisiae	1	1
-11320	Influenza A virus	1	0
+source	name	kraken_taxid	min_kraken_clade_reads	kaiju_taxid	min_kaiju_reads
+ecoli	Escherichia coli	562	1	562	1
+yeast	Saccharomyces cerevisiae	4932	1	4932	1
+influenza_a	Influenza A virus	2955291	1	11320	1
