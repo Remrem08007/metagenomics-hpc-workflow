@@ -13,7 +13,7 @@ VALIDATOR = REPO / "bin" / "validate_test_run.py"
 
 
 class MockDataTests(unittest.TestCase):
-    def test_generator_writes_expected_pair_counts(self):
+    def test_generator_writes_expected_pair_counts_and_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             refs = {}
@@ -33,13 +33,13 @@ class MockDataTests(unittest.TestCase):
                     sys.executable,
                     str(GENERATOR),
                     "--source",
-                    f"human,9606,HUMAN,{refs['human']},4",
+                    f"human,9606,HUMAN,{refs['human']},4,1001",
                     "--source",
-                    f"ecoli,562,ECOLI,{refs['ecoli']},3",
+                    f"ecoli,562,ECOLI,{refs['ecoli']},3,2001",
                     "--source",
-                    f"yeast,4932,YEAST,{refs['yeast']},2",
+                    f"yeast,4932,YEAST,{refs['yeast']},2,3001",
                     "--source",
-                    f"influenza_a,11320,FLU,{refs['influenza']},1",
+                    f"influenza_a,11320,FLU,{refs['influenza']},1,1",
                     "--output-dir",
                     str(out),
                 ],
@@ -49,6 +49,7 @@ class MockDataTests(unittest.TestCase):
             with (out / "mixture.tsv").open() as handle:
                 rows = list(csv.DictReader(handle, delimiter="\t"))
             self.assertEqual(sum(int(row["pair_count"]) for row in rows), 10)
+            self.assertEqual(rows[0]["accession_region_start_1based"], "1001")
 
             with gzip.open(out / "mock-community_R1.fastq.gz", "rt") as handle:
                 self.assertEqual(sum(1 for _ in handle), 40)
@@ -58,6 +59,14 @@ class MockDataTests(unittest.TestCase):
             with (out / "ground_truth.tsv").open() as handle:
                 truth = list(csv.DictReader(handle, delimiter="\t"))
             self.assertEqual(len(truth), 10)
+
+            first = truth[0]
+            local_start = int(first["source_sequence_start_1based"])
+            accession_start = int(first["accession_start_1based"])
+            accession_end = int(first["accession_end_1based"])
+            self.assertEqual(first["source"], "human")
+            self.assertEqual(accession_start, 1001 + local_start - 1)
+            self.assertEqual(accession_end, accession_start + 350 - 1)
 
     def test_biological_validator_passes_expected_fixture(self):
         with tempfile.TemporaryDirectory() as tmp:
