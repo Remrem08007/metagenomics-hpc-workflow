@@ -86,6 +86,12 @@ if [[ -n "$CONFIG" ]]; then
   [[ -s "$CONFIG" ]] || { echo "Config not found: $CONFIG" >&2; exit 1; }
 fi
 
+# Nextflow's launcher performs a latest-version HTTP probe on `nextflow run` by
+# default. Analysis on offline HPC compute nodes uses only local workflow files,
+# containers and databases, so disable that probe while still allowing callers
+# to override the setting explicitly if they need it.
+export NXF_DISABLE_CHECK_LATEST="${NXF_DISABLE_CHECK_LATEST:-true}"
+
 try_load_module_for nextflow nextflow || {
   echo "nextflow is not available on PATH and could not be loaded as a module." >&2
   exit 1
