@@ -28,23 +28,37 @@ GitHub Actions compares the generated files to these fixtures with `diff -u`.
 ## 2. Biological mock-community test
 
 A second test runs the real workflow against a deterministic 100-pair mixture.
-Small versioned RefSeq segments are downloaded from NCBI and converted into paired
+Pinned RefSeq records or segments are downloaded from NCBI and converted into paired
 150 bp reads using a fixed random seed.
 
 The mixture is:
 
-| Source | Taxid | RefSeq source | Pairs |
+| Source | Source taxid | RefSeq source | Pairs |
 | --- | ---: | --- | ---: |
 | Homo sapiens GRCh38 chromosome 1 | 9606 | `NC_000001.11:9588911-9614877` | 40 |
-| Escherichia coli K-12 MG1655 | 562 | `NC_000913.3:100001-125000` | 30 |
+| Escherichia coli K-12 MG1655 | 562 | full `NC_000913.3` record | 30 |
 | Saccharomyces cerevisiae S288C chromosome I | 4932 | `NC_001133.9:42177-62177` | 20 |
-| Influenza A virus A/California/07/2009(H1N1), segment 7 | 11320 | `NC_026431.1` | 10 |
+| Influenza A virus A/California/07/2009(H1N1), segment 7 | 11320 | full `NC_026431.1` record | 10 |
 
-Create it with:
+The full E. coli chromosome is intentionally used for read generation. A previous
+25 kb window (`NC_000913.3:100001-125000`) proved unusually non-discriminative in a
+real Kraken2 PlusPF run: nearly all bacterial pairs were assigned only to the
+Enterobacteriaceae family. Sampling across the chromosome gives a more representative
+species-level smoke test.
+
+Create the mock data with:
 
 ```bash
 bash scripts/setup_test_data.sh \
   --output-dir "$SCRATCH/metagenomics_test"
+```
+
+Use `--force` after changing the fixture definition:
+
+```bash
+bash scripts/setup_test_data.sh \
+  --output-dir "$SCRATCH/metagenomics_test" \
+  --force
 ```
 
 This creates:
@@ -68,7 +82,7 @@ $SCRATCH/metagenomics_test/
 ```
 
 `ground_truth.tsv` records the source, taxid, accession, local position within the
-downloaded FASTA segment, and absolute coordinates on the full RefSeq accession for
+downloaded FASTA sequence, and absolute coordinates on the full RefSeq accession for
 every generated read pair. Coordinate columns are 1-based and fragment ends are
 inclusive:
 
@@ -85,17 +99,31 @@ at absolute accession position 9,599,857.
 ### Biological expectations
 
 Unlike the stub fixtures, classifier counts are not required to match an exact
-number. Kraken2 and Kaiju use different algorithms and database contents, so the
-real-data test checks biologically meaningful invariants instead.
+number. Kraken2 and Kaiju use different algorithms and database/taxonomy
+representations, so the real-data test checks biologically meaningful invariants.
+
+`tests/expected/biological_expectations.tsv` has classifier-specific taxid columns:
+
+```text
+source  name  kraken_taxid  min_kraken_clade_reads  kaiju_taxid  min_kaiju_reads
+```
+
+This matters when the same source is normalized differently by the two tools. For the
+influenza fixture, Kraken2 reports the current species `Alphainfluenzavirus influenzae`
+(taxid `2955291`) while Kaiju's species table may report the historical/child
+`Influenza A virus` taxid `11320`. The validator therefore checks those outputs
+separately instead of assuming one shared taxid.
 
 The current expectations require:
 
-- E. coli taxid `562` detected by Kraken2 and Kaiju;
-- S. cerevisiae taxid `4932` detected by Kraken2 and Kaiju;
-- Influenza A taxid `11320` detected by Kraken2;
+- E. coli recovered by Kraken2 and Kaiju;
+- S. cerevisiae recovered by Kraken2 and Kaiju;
+- influenza recovered by Kraken2 at species taxid `2955291` and by Kaiju at taxid
+  `11320`;
 - STAR residual/unmapped percentage between 45% and 75% for the 40% host / 60%
   non-host mixture;
-- residual human abundance in the Kraken2 report between 0% and 5%.
+- residual human abundance in the Kraken2 report between 0% and 5%. A missing human
+  node (`NA`, `NOT_FOUND`) is interpreted as 0% residual human for this test.
 
 The checked-in expectation fixtures are:
 
@@ -107,10 +135,6 @@ tests/expected/biological_qc_expectations.tsv
 Kraken2 expectations use species-level **clade reads**, not only direct reads, so a
 read assigned to a strain below the expected species still counts as recovery of that
 species.
-
-Influenza is not currently required to appear at taxid `11320` in the Kaiju species
-summary because viral classifications may be reported at a more specific viral taxon
-when virus expansion is enabled.
 
 ### Run and validate automatically
 
