@@ -15,6 +15,12 @@ def as_float(value, default=0.0):
     return float(value)
 
 
+def as_int(value, default=0):
+    if value in (None, "", "NA"):
+        return default
+    return int(float(value))
+
+
 def load_qc_expectations(path: Path):
     expectations = {}
     for row in read_tsv(path):
@@ -29,6 +35,33 @@ def load_qc_expectations(path: Path):
             "Missing QC expectation metric(s): " + ", ".join(sorted(missing))
         )
     return expectations
+
+
+def require_taxon(
+    taxonomy: dict[str, dict[str, str]],
+    taxid: str,
+    metric: str,
+    minimum: int,
+    label: str,
+    classifier: str,
+    failures: list[str],
+) -> None:
+    if minimum <= 0:
+        return
+    if not taxid:
+        failures.append(f"{label}: missing expected {classifier} taxid")
+        return
+
+    row = taxonomy.get(taxid)
+    if row is None:
+        failures.append(f"{label}: {classifier} taxid {taxid} missing from taxonomy table")
+        return
+
+    observed = as_int(row.get(metric), 0)
+    if observed < minimum:
+        failures.append(
+            f"{label}: {classifier} taxid {taxid} {metric} {observed} < expected minimum {minimum}"
+        )
 
 
 def main() -> None:
@@ -74,28 +107,42 @@ def main() -> None:
     taxonomy = {row["taxid"]: row for row in read_tsv(taxonomy_path)}
     failures = []
 
-    for expected in expected_rows:
-        taxid = expected["taxid"]
-        row = taxonomy.get(taxid)
-        min_kraken = int(expected.get("min_kraken_clade_reads", "0") or 0)
-        min_kaiju = int(expected.get("min_kaiju_reads", "0") or 0)
-        if row is None:
-            if min_kraken > 0 or min_kaiju > 0:
-                failures.append(
-                    f"taxid {taxid} ({expected['name']}) missing from taxonomy table"
-                )
-            continue
+    required_columns = {
+        "source",
+        "name",
+        "kraken_taxid",
+        "min_kraken_clade_reads",
+        "kaiju_taxid",
+        "min_kaiju_reads",
+    }
+    if expected_rows:
+        missing_columns = required_columns - set(expected_rows[0])
+        if missing_columns:
+            raise SystemExit(
+                "Expected-taxa file is missing column(s): "
+                + ", ".join(sorted(missing_columns))
+            )
 
-        kraken_reads = int(float(row.get("kraken_clade_reads") or 0))
-        kaiju_reads = int(float(row.get("kaiju_reads") or 0))
-        if kraken_reads < min_kraken:
-            failures.append(
-                f"taxid {taxid} Kraken2 clade reads {kraken_reads} < expected minimum {min_kraken}"
-            )
-        if kaiju_reads < min_kaiju:
-            failures.append(
-                f"taxid {taxid} Kaiju reads {kaiju_reads} < expected minimum {min_kaiju}"
-            )
+    for expected in expected_rows:
+        label = f"{expected['source']} ({expected['name']})"
+        require_taxon(
+            taxonomy,
+            expected.get("kraken_taxid", "").strip(),
+            "kraken_clade_reads",
+            as_int(expected.get("min_kraken_clade_reads"), 0),
+            label,
+            "Kraken2",
+            failures,
+        )
+        require_taxon(
+            taxonomy,
+            expected.get("kaiju_taxid", "").strip(),
+            "kaiju_reads",
+            as_int(expected.get("min_kaiju_reads"), 0),
+            label,
+            "Kaiju",
+            failures,
+        )
 
     star_rows = read_tsv(star_qc_path)
     human_rows = read_tsv(human_qc_path)
@@ -114,6 +161,8 @@ def main() -> None:
 
         human_min = qc_expected["kraken_human_pct"]["minimum"]
         human_max = qc_expected["kraken_human_pct"]["maximum"]
+        if human_rows[0]["human_pct"] in (None, "", "NA"):
+            human_pct = 0.0
         if not human_min <= human_pct <= human_max:
             failures.append(
                 f"Kraken2 residual human_pct {human_pct:.3f} outside expected range {human_min:g}-{human_max:g}%"
