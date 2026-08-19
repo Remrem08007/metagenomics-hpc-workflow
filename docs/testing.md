@@ -67,8 +67,20 @@ $SCRATCH/metagenomics_test/
     └── expected_qc.tsv
 ```
 
-`ground_truth.tsv` records the source, taxid, accession and reference coordinate for
-every generated read pair.
+`ground_truth.tsv` records the source, taxid, accession, local position within the
+downloaded FASTA segment, and absolute coordinates on the full RefSeq accession for
+every generated read pair. Coordinate columns are 1-based and fragment ends are
+inclusive:
+
+```text
+source_sequence_start_1based  # local position within the downloaded FASTA
+accession_start_1based        # absolute start on the full RefSeq accession
+accession_end_1based          # absolute inclusive end on the full RefSeq accession
+```
+
+For example, FASTA base 1 of the human test segment corresponds to
+`NC_000001.11:9588911`, so a fragment starting at local FASTA position 10,947 starts
+at absolute accession position 9,599,857.
 
 ### Biological expectations
 

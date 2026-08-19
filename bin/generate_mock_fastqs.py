@@ -56,7 +56,11 @@ def main() -> None:
         "--source",
         action="append",
         required=True,
-        help="SOURCE,TAXID,ACCESSION,FASTA,PAIR_COUNT; repeat for each source",
+        help=(
+            "SOURCE,TAXID,ACCESSION,FASTA,PAIR_COUNT[,ACCESSION_REGION_START_1BASED]; "
+            "repeat for each source. The optional final value is the coordinate on the "
+            "full accession corresponding to FASTA base 1 (default: 1)."
+        ),
     )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--sample", default="mock-community")
@@ -75,21 +79,33 @@ def main() -> None:
 
     sources = []
     for raw in args.source:
-        parts = raw.split(",", 4)
-        if len(parts) != 5:
+        parts = raw.split(",")
+        if len(parts) not in (5, 6):
             parser.error(f"Invalid --source: {raw}")
-        source, taxid, accession, fasta, count = parts
+        source, taxid, accession, fasta, count = parts[:5]
         count = int(count)
         if count <= 0:
             parser.error(f"PAIR_COUNT must be > 0: {raw}")
-        sources.append((source, int(taxid), accession, Path(fasta).resolve(), count))
+        accession_region_start = int(parts[5]) if len(parts) == 6 else 1
+        if accession_region_start <= 0:
+            parser.error(f"ACCESSION_REGION_START_1BASED must be > 0: {raw}")
+        sources.append(
+            (
+                source,
+                int(taxid),
+                accession,
+                Path(fasta).resolve(),
+                count,
+                accession_region_start,
+            )
+        )
 
     rng = random.Random(args.seed)
     pairs = []
     truth = []
     serial = 0
 
-    for source, taxid, accession, fasta, count in sources:
+    for source, taxid, accession, fasta, count, accession_region_start in sources:
         seq = read_fasta(fasta)
         for _source_idx in range(1, count + 1):
             serial += 1
@@ -100,9 +116,21 @@ def main() -> None:
                 f"{args.sample}.{serial:04d}|source={source}|taxid={taxid}|"
                 f"accession={accession}"
             )
+            source_sequence_start = start + 1
+            accession_start = accession_region_start + start
+            accession_end = accession_start + args.fragment_length - 1
             pairs.append((pair_id, r1, r2))
             truth.append(
-                (pair_id, source, taxid, accession, start + 1, args.fragment_length)
+                (
+                    pair_id,
+                    source,
+                    taxid,
+                    accession,
+                    source_sequence_start,
+                    accession_start,
+                    accession_end,
+                    args.fragment_length,
+                )
             )
 
     rng.shuffle(pairs)
@@ -122,7 +150,9 @@ def main() -> None:
                 "source",
                 "taxid",
                 "accession",
-                "reference_start_1based",
+                "source_sequence_start_1based",
+                "accession_start_1based",
+                "accession_end_1based",
                 "fragment_length",
             ]
         )
@@ -139,9 +169,19 @@ def main() -> None:
         "w", newline="", encoding="utf-8"
     ) as handle:
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
-        writer.writerow(["source", "taxid", "accession", "pair_count"])
-        for source, taxid, accession, _fasta, count in sources:
-            writer.writerow([source, taxid, accession, count])
+        writer.writerow(
+            [
+                "source",
+                "taxid",
+                "accession",
+                "pair_count",
+                "accession_region_start_1based",
+            ]
+        )
+        for source, taxid, accession, _fasta, count, accession_region_start in sources:
+            writer.writerow(
+                [source, taxid, accession, count, accession_region_start]
+            )
 
     print(outdir / "samplesheet.csv")
 

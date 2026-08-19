@@ -78,11 +78,14 @@ download_ref ecoli       NC_000913.3   100001   125000
 download_ref yeast       NC_001133.9    42177    62177
 download_ref influenza_a NC_026431.1        ""       ""
 
+# The final --source value is the 1-based coordinate on the full RefSeq accession
+# corresponding to FASTA base 1. This lets ground_truth.tsv report both local
+# downloaded-segment coordinates and absolute accession coordinates.
 python3 "$REPO_ROOT/bin/generate_mock_fastqs.py" \
-    --source "human,9606,NC_000001.11,$REF_DIR/human.fa,40" \
-    --source "ecoli,562,NC_000913.3,$REF_DIR/ecoli.fa,30" \
-    --source "yeast,4932,NC_001133.9,$REF_DIR/yeast.fa,20" \
-    --source "influenza_a,11320,NC_026431.1,$REF_DIR/influenza_a.fa,10" \
+    --source "human,9606,NC_000001.11,$REF_DIR/human.fa,40,9588911" \
+    --source "ecoli,562,NC_000913.3,$REF_DIR/ecoli.fa,30,100001" \
+    --source "yeast,4932,NC_001133.9,$REF_DIR/yeast.fa,20,42177" \
+    --source "influenza_a,11320,NC_026431.1,$REF_DIR/influenza_a.fa,10,1" \
     --output-dir "$DATA_DIR" \
     --sample mock-community \
     --read-length 150 \
@@ -111,6 +114,11 @@ Reference provenance:
   ecoli       NC_000913.3:100001-125000
   yeast       NC_001133.9:42177-62177
   influenza_a NC_026431.1 (full record)
+
+Coordinate convention in ground_truth.tsv:
+  source_sequence_start_1based = position within the downloaded FASTA sequence
+  accession_start_1based       = absolute position on the full RefSeq accession
+  accession_end_1based         = absolute inclusive fragment end on that accession
 
 The FASTQs are generated deterministically with seed 20260818.
 EOF
