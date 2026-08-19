@@ -10,7 +10,7 @@ Usage: setup_test_data.sh --output-dir DIR [--force]
 
 Creates a deterministic paired-end mock community for a real pipeline smoke test.
 
-The script downloads small pinned RefSeq sequence segments from NCBI over HTTPS,
+The script downloads pinned RefSeq records/segments from NCBI over HTTPS,
 then generates 100 paired-end reads with fixed composition:
 
   40 pairs  Homo sapiens GRCh38 chr1   taxid 9606
@@ -74,7 +74,9 @@ download_ref() {
 }
 
 download_ref human       NC_000001.11 9588911 9614877
-download_ref ecoli       NC_000913.3   100001   125000
+# Use the full K-12 chromosome so bacterial reads are sampled across the genome
+# rather than from one unusually conserved Enterobacteriaceae-rich window.
+download_ref ecoli       NC_000913.3        ""       ""
 download_ref yeast       NC_001133.9    42177    62177
 download_ref influenza_a NC_026431.1        ""       ""
 
@@ -83,7 +85,7 @@ download_ref influenza_a NC_026431.1        ""       ""
 # downloaded-segment coordinates and absolute accession coordinates.
 python3 "$REPO_ROOT/bin/generate_mock_fastqs.py" \
     --source "human,9606,NC_000001.11,$REF_DIR/human.fa,40,9588911" \
-    --source "ecoli,562,NC_000913.3,$REF_DIR/ecoli.fa,30,100001" \
+    --source "ecoli,562,NC_000913.3,$REF_DIR/ecoli.fa,30,1" \
     --source "yeast,4932,NC_001133.9,$REF_DIR/yeast.fa,20,42177" \
     --source "influenza_a,11320,NC_026431.1,$REF_DIR/influenza_a.fa,10,1" \
     --output-dir "$DATA_DIR" \
@@ -111,7 +113,7 @@ Expected pipeline results:
 
 Reference provenance:
   human       NC_000001.11:9588911-9614877
-  ecoli       NC_000913.3:100001-125000
+  ecoli       NC_000913.3 (full record)
   yeast       NC_001133.9:42177-62177
   influenza_a NC_026431.1 (full record)
 
@@ -119,6 +121,10 @@ Coordinate convention in ground_truth.tsv:
   source_sequence_start_1based = position within the downloaded FASTA sequence
   accession_start_1based       = absolute position on the full RefSeq accession
   accession_end_1based         = absolute inclusive fragment end on that accession
+
+Classifier-specific biological expectations:
+  expected_taxa.tsv may use different Kraken2 and Kaiju taxids for the same source
+  when the classifiers normalize current taxonomy at different ranks.
 
 The FASTQs are generated deterministically with seed 20260818.
 EOF
