@@ -4,12 +4,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[1]
 GENERATOR = REPO / "bin" / "generate_mock_fastqs.py"
 VALIDATOR = REPO / "bin" / "validate_test_run.py"
+FIXTURE = REPO / "tests" / "fixtures" / "mock-community" / "data"
 
 
 class MockDataTests(unittest.TestCase):
@@ -67,6 +69,63 @@ class MockDataTests(unittest.TestCase):
             self.assertEqual(first["source"], "human")
             self.assertEqual(accession_start, 1001 + local_start - 1)
             self.assertEqual(accession_end, accession_start + 350 - 1)
+
+    def test_committed_biological_fixture_is_complete_and_portable(self):
+        required = {
+            "mock-community_R1.fastq.gz",
+            "mock-community_R2.fastq.gz",
+            "samplesheet.csv",
+            "ground_truth.tsv",
+            "mixture.tsv",
+            "expected_taxa.tsv",
+            "expected_qc.tsv",
+        }
+        self.assertEqual({path.name for path in FIXTURE.iterdir()}, required)
+
+        with (FIXTURE / "samplesheet.csv").open(newline="") as handle:
+            samples = list(csv.DictReader(handle))
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["sample"], "mock-community")
+        self.assertEqual(samples[0]["fastq_1"], "mock-community_R1.fastq.gz")
+        self.assertEqual(samples[0]["fastq_2"], "mock-community_R2.fastq.gz")
+        self.assertFalse(Path(samples[0]["fastq_1"]).is_absolute())
+        self.assertFalse(Path(samples[0]["fastq_2"]).is_absolute())
+
+        read_ids = []
+        for mate in (1, 2):
+            path = FIXTURE / f"mock-community_R{mate}.fastq.gz"
+            with gzip.open(path, "rt") as handle:
+                lines = list(handle)
+            self.assertEqual(len(lines), 400)
+            read_ids.append(
+                [lines[i].rstrip().removeprefix("@").removesuffix(f"/{mate}") for i in range(0, len(lines), 4)]
+            )
+        self.assertEqual(read_ids[0], read_ids[1])
+
+        with (FIXTURE / "ground_truth.tsv").open(newline="") as handle:
+            truth = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual(len(truth), 100)
+        self.assertEqual(
+            Counter(row["source"] for row in truth),
+            Counter({"human": 40, "ecoli": 30, "yeast": 20, "influenza_a": 10}),
+        )
+
+        with (FIXTURE / "mixture.tsv").open(newline="") as handle:
+            mixture = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual(sum(int(row["pair_count"]) for row in mixture), 100)
+        self.assertEqual(
+            {row["accession"] for row in mixture},
+            {"NC_000001.11", "NC_000913.3", "NC_001133.9", "NC_026431.1"},
+        )
+
+        self.assertEqual(
+            (FIXTURE / "expected_taxa.tsv").read_bytes(),
+            (REPO / "tests" / "expected" / "biological_expectations.tsv").read_bytes(),
+        )
+        self.assertEqual(
+            (FIXTURE / "expected_qc.tsv").read_bytes(),
+            (REPO / "tests" / "expected" / "biological_qc_expectations.tsv").read_bytes(),
+        )
 
     def test_biological_validator_supports_classifier_specific_taxids(self):
         with tempfile.TemporaryDirectory() as tmp:
