@@ -1,76 +1,42 @@
-# Testing
+# Testing and validation
 
-The repository has two complementary test layers.
+The repository uses two complementary validation layers:
 
-## 1. Deterministic stub test
+1. a fast deterministic CI/stub layer for workflow structure and output contracts;
+2. a committed biological mock-community fixture for end-to-end behavior with real tools and databases.
 
-The CI test uses Nextflow `-stub-run`. It exercises the DSL2 graph, process signatures,
-channel wiring, publish paths, and utility scripts without downloading databases or
-running bioinformatics containers.
+These tests answer different questions. The stub test asks whether the pipeline is wired correctly and reproducibly. The biological test asks whether the complete workflow behaves sensibly on known sequencing input.
 
-Run it with:
+## 1. Deterministic CI / stub test
+
+CI runs Nextflow with `-stub-run`:
 
 ```bash
 nextflow run main.nf -profile test -stub-run
 ```
+
+This exercises the DSL2 graph, process signatures, channel wiring, publish paths, utility scripts, and output contracts without downloading databases or executing the bioinformatics containers.
 
 Exact expected outputs are committed under:
 
 ```text
 tests/expected/stub/
 ├── stub.taxonomy_comparison.tsv
+├── all_samples.taxonomy_comparison.tsv
 ├── stub.star_host_depletion_qc.tsv
 └── stub.kraken_human_qc.tsv
 ```
 
-GitHub Actions compares the generated files to these fixtures with `diff -u`.
+GitHub Actions compares these files byte-for-byte with the stub outputs using `diff -u`.
 
-## 2. Biological mock-community test
+The Python test suite also checks the mock-data generator, classifier-specific biological expectations, coordinate conventions, and the integrity of the committed biological fixture.
 
-A second test runs the real workflow against a deterministic 100-pair mixture.
-Pinned RefSeq records or segments are downloaded from NCBI and converted into paired
-150 bp reads using a fixed random seed.
+## 2. Committed biological mock community
 
-The mixture is:
-
-| Source | Source taxid | RefSeq source | Pairs |
-| --- | ---: | --- | ---: |
-| Homo sapiens GRCh38 chromosome 1 | 9606 | `NC_000001.11:9588911-9614877` | 40 |
-| Escherichia coli K-12 MG1655 | 562 | full `NC_000913.3` record | 30 |
-| Saccharomyces cerevisiae S288C chromosome I | 4932 | `NC_001133.9:42177-62177` | 20 |
-| Influenza A virus A/California/07/2009(H1N1), segment 7 | 11320 | full `NC_026431.1` record | 10 |
-
-The full E. coli chromosome is intentionally used for read generation. A previous
-25 kb window (`NC_000913.3:100001-125000`) proved unusually non-discriminative in a
-real Kraken2 PlusPF run: nearly all bacterial pairs were assigned only to the
-Enterobacteriaceae family. Sampling across the chromosome gives a more representative
-species-level smoke test.
-
-Create the mock data with:
-
-```bash
-bash scripts/setup_test_data.sh \
-  --output-dir "$SCRATCH/metagenomics_test"
-```
-
-Use `--force` after changing the fixture definition:
-
-```bash
-bash scripts/setup_test_data.sh \
-  --output-dir "$SCRATCH/metagenomics_test" \
-  --force
-```
-
-This creates:
+The complete runnable test dataset is committed under:
 
 ```text
-$SCRATCH/metagenomics_test/
-├── README.txt
-├── references/
-│   ├── human.fa
-│   ├── ecoli.fa
-│   ├── yeast.fa
-│   └── influenza_a.fa
+tests/fixtures/mock-community/
 └── data/
     ├── mock-community_R1.fastq.gz
     ├── mock-community_R2.fastq.gz
@@ -81,100 +47,148 @@ $SCRATCH/metagenomics_test/
     └── expected_qc.tsv
 ```
 
-`ground_truth.tsv` records the source, taxid, accession, local position within the
-downloaded FASTA sequence, and absolute coordinates on the full RefSeq accession for
-every generated read pair. Coordinate columns are 1-based and fragment ends are
-inclusive:
+The FASTQs contain exactly **100 paired-end fragments**, each with 150 bp reads and a 350 bp source fragment.
+
+| Source | Source taxid | RefSeq source | Pairs |
+| --- | ---: | --- | ---: |
+| Homo sapiens GRCh38 chromosome 1 | 9606 | `NC_000001.11:9588911-9614877` | 40 |
+| Escherichia coli K-12 MG1655 | 562 | full `NC_000913.3` record | 30 |
+| Saccharomyces cerevisiae S288C chromosome I | 4932 | `NC_001133.9:42177-62177` | 20 |
+| Influenza A virus A/California/07/2009(H1N1), segment 7 | 11320 | full `NC_026431.1` record | 10 |
+
+The fixture was generated with seed `20260818`. The gzip streams are deterministic (`mtime=0`), so regenerating from the same reference records and code yields reproducible read content.
+
+### Ground truth
+
+`ground_truth.tsv` contains one row per read pair with:
 
 ```text
-source_sequence_start_1based  # local position within the downloaded FASTA
-accession_start_1based        # absolute start on the full RefSeq accession
-accession_end_1based          # absolute inclusive end on the full RefSeq accession
+pair_id
+source
+taxid
+accession
+source_sequence_start_1based
+accession_start_1based
+accession_end_1based
+fragment_length
 ```
 
-For example, FASTA base 1 of the human test segment corresponds to
-`NC_000001.11:9588911`, so a fragment starting at local FASTA position 10,947 starts
-at absolute accession position 9,599,857.
+Coordinates are explicit:
 
-### Biological expectations
+- `source_sequence_start_1based` is the local position within the downloaded FASTA sequence;
+- `accession_start_1based` is the position on the full RefSeq accession;
+- `accession_end_1based` is the inclusive fragment end on the full accession.
 
-Unlike the stub fixtures, classifier counts are not required to match an exact
-number. Kraken2 and Kaiju use different algorithms and database/taxonomy
-representations, so the real-data test checks biologically meaningful invariants.
+For the human source, FASTA base 1 corresponds to `NC_000001.11:9588911`.
 
-`tests/expected/biological_expectations.tsv` has classifier-specific taxid columns:
+### Portable samplesheet
+
+The committed `samplesheet.csv` uses paths relative to the fixture directory:
+
+```csv
+sample,fastq_1,fastq_2
+mock-community,mock-community_R1.fastq.gz,mock-community_R2.fastq.gz
+```
+
+The pipeline resolves relative FASTQ paths relative to the samplesheet itself, so the fixture remains portable after cloning the repository.
+
+## Biological expectations
+
+The biological test checks **known-source recovery and QC invariants**, not exact per-read species classification.
+
+That distinction is important: short reads may be correctly recognized at family or genus level when they do not contain enough unique sequence to support a species-level assignment. The smoke test therefore verifies pipeline behavior without claiming that all reads must resolve to the most specific possible taxon.
+
+The expectation schema is:
 
 ```text
 source  name  kraken_taxid  min_kraken_clade_reads  kaiju_taxid  min_kaiju_reads
 ```
 
-This matters when the same source is normalized differently by the two tools. For the
-influenza fixture, Kraken2 reports the current species `Alphainfluenzavirus influenzae`
-(taxid `2955291`) while Kaiju's species table may report the historical/child
-`Influenza A virus` taxid `11320`. The validator therefore checks those outputs
-separately instead of assuming one shared taxid.
+Kraken2 and Kaiju are evaluated independently because their database structures and taxonomy representations can differ.
 
-The current expectations require:
-
-- E. coli recovered by Kraken2 and Kaiju;
-- S. cerevisiae recovered by Kraken2 and Kaiju;
-- influenza recovered by Kraken2 at species taxid `2955291` and by Kaiju at taxid
-  `11320`;
-- STAR residual/unmapped percentage between 45% and 75% for the 40% host / 60%
-  non-host mixture;
-- residual human abundance in the Kraken2 report between 0% and 5%. A missing human
-  node (`NA`, `NOT_FOUND`) is interpreted as 0% residual human for this test.
-
-The checked-in expectation fixtures are:
+Current expectations are stored in:
 
 ```text
 tests/expected/biological_expectations.tsv
 tests/expected/biological_qc_expectations.tsv
 ```
 
-Kraken2 expectations use species-level **clade reads**, not only direct reads, so a
-read assigned to a strain below the expected species still counts as recovery of that
-species.
+and copied into the committed fixture.
 
-### Run and validate automatically
+### Classifier-specific taxonomy
 
-After containers, the host STAR index and the Kraken2/Kaiju databases are staged:
+For influenza, the two tools legitimately report different taxonomic nodes:
 
-```bash
-bash scripts/run_biological_test.sh \
-  --test-dir "$SCRATCH/metagenomics_test" \
-  --host-index "$SCRATCH/references/GRCh38_STAR" \
-  --kraken2-db "$SCRATCH/metagenomics_databases/kraken2/pluspf" \
-  --kaiju-db "$SCRATCH/metagenomics_databases/kaiju/nr_euk" \
-  --container-dir "$SCRATCH/metagenomics_containers" \
-  --outdir "$SCRATCH/metagenomics_test_results"
-```
+- Kraken2 species row: `2955291` — `Alphainfluenzavirus influenzae`;
+- Kaiju species summary: `11320` — `Influenza A virus`.
 
-Or keep the Nextflow controller off the login node:
+The validator checks each classifier against its expected taxid instead of forcing both outputs onto one identifier.
 
-```bash
-sbatch scripts/submit_biological_test.sbatch \
-  --test-dir "$SCRATCH/metagenomics_test" \
-  --host-index "$SCRATCH/references/GRCh38_STAR" \
-  --kraken2-db "$SCRATCH/metagenomics_databases/kraken2/pluspf" \
-  --kaiju-db "$SCRATCH/metagenomics_databases/kaiju/nr_euk" \
-  --container-dir "$SCRATCH/metagenomics_containers" \
-  --outdir "$SCRATCH/metagenomics_test_results"
-```
+For Kraken2, the test uses **clade reads**, not only direct taxon reads. A read classified below the species node therefore contributes to the species clade count, which is the appropriate species-level recovery measure for the Kraken report.
 
-The wrapper runs the real pipeline with `-resume` and then calls
-`bin/validate_test_run.py`. A successful run ends with:
+### Host-depletion QC
+
+The fixture contains 40 host pairs and 60 non-host pairs. The checked QC invariants are:
+
+- STAR residual percentage between 45% and 75%;
+- Kraken2 residual human abundance between 0% and 5%.
+
+A missing human node in the Kraken2 report (`NA` / `NOT_FOUND`) is interpreted as 0% residual human for this smoke test.
+
+## Validated end-to-end behavior
+
+A full SLURM run of the committed biological design completed all pipeline processes and returned:
 
 ```text
 BIOLOGICAL TEST: PASS
 ```
 
-If a required taxon disappears, host depletion behaves unexpectedly, or residual
-human signal exceeds the allowed test range, the validator exits non-zero.
+The reference run produced:
 
-## Why both test layers exist
+- STAR residual fraction: **60.0000%**, exactly matching the designed 40% host / 60% non-host mixture;
+- Kraken2 human taxid `9606`: **not found** after host depletion;
+- expected E. coli signal recovered by both classifiers;
+- all 20 yeast-derived pairs represented in the Kraken2 S. cerevisiae clade;
+- all 10 influenza-derived pairs represented in the Kraken2 influenza species clade and recovered in the Kaiju influenza summary.
 
-The stub test is fast and exact, so it belongs in CI. The biological test is slower
-and requires real containers plus large reference databases, but it verifies that the
-workflow behaves sensibly on known biological input. Keeping both prevents a pipeline
-from being considered healthy merely because its Nextflow graph compiles.
+Species-level resolution is intentionally not presented as a universal accuracy benchmark. For example, many short E. coli-derived fragments can resolve only to Enterobacteriaceae or Escherichia in Kraken2 while still remaining in the correct broader lineage. The purpose of this fixture is to detect broken workflow behavior, not to overstate taxonomic resolution.
+
+## Run the committed fixture
+
+After staging a host STAR index, Kraken2 database, Kaiju database, and local containers:
+
+```bash
+bash scripts/run_biological_test.sh \
+  --test-dir "$PWD/tests/fixtures/mock-community" \
+  --host-index /shared/references/GRCh38_STAR \
+  --kraken2-db /shared/metagenomics/databases/kraken2/pluspf \
+  --kaiju-db /shared/metagenomics/databases/kaiju/nr_euk \
+  --container-dir /shared/metagenomics/containers \
+  --outdir /shared/results/metagenomics-smoke-test \
+  --profile slurm
+```
+
+The wrapper runs the normal workflow with `-resume` and then invokes `bin/validate_test_run.py`.
+
+## Regenerate the fixture from public references
+
+The committed reads can be reproduced from the pinned RefSeq sources:
+
+```bash
+bash scripts/setup_test_data.sh \
+  --output-dir /shared/metagenomics/generated-test-data \
+  --force
+```
+
+This provisioning step requires HTTPS access to NCBI. It is separate from the analysis workflow so restricted compute nodes do not need network access.
+
+The generator also writes the same ground-truth and mixture metadata used to create the committed fixture.
+
+## Why both layers exist
+
+A compiling Nextflow graph is not enough evidence that a bioinformatics pipeline is healthy, while a full biological run is too expensive and environment-dependent for every CI invocation.
+
+The combination provides both:
+
+- **fast regression protection** through exact CI/stub outputs;
+- **biological confidence** through a transparent, known-source end-to-end fixture.

@@ -1,54 +1,107 @@
 # Offline / restricted-network HPC execution
 
-The analysis workflow is designed so that submitted compute tasks do **not** need internet access.
+The analysis workflow is designed so that submitted compute tasks do **not** require internet access.
 
 ## Provisioning versus analysis
 
-Provisioning is explicit and separate:
+Provisioning is explicit and separate from analysis:
 
-1. pull the required Singularity/Apptainer images;
+1. pull the required Apptainer/Singularity images;
 2. download or stage Kraken2 and Kaiju databases;
-3. stage/build the host STAR index;
+3. stage or build the host STAR index;
 4. run `scripts/verify_assets.sh`;
 5. launch Nextflow from the local repository checkout.
 
-The provisioning scripts inherit `HTTPS_PROXY` and `https_proxy`, so they can be used from an environment where outbound HTTPS is available through a proxy.
+Provisioning helpers inherit `HTTPS_PROXY` / `https_proxy` when configured. The analysis DAG itself contains no `curl`, `wget`, registry pulls, NCBI API calls, or remote Nextflow module dependencies.
 
-The Nextflow DAG itself contains no `curl`, `wget`, registry pulls, NCBI API calls, or remote pipeline/module dependencies.
+The biological FASTQ fixture is committed under `tests/fixtures/mock-community/`, so the smoke test can use its input reads without contacting NCBI. NCBI access is needed only if the fixture is intentionally regenerated from public reference provenance with `scripts/setup_test_data.sh`.
+
+## Nextflow launcher behavior
+
+The runner sets:
+
+```bash
+NXF_DISABLE_CHECK_LATEST=true
+```
+
+by default unless the caller has explicitly set a different value. This suppresses Nextflow's nonessential latest-version HTTP probe, which can otherwise wait for a network timeout on restricted compute nodes even when the required local Nextflow runtime is already available.
+
+This is narrower than forcing `NXF_OFFLINE=true`: it disables the version check without globally changing other Nextflow networking behavior.
 
 ## Containers
 
-Pull once:
+Pull images once from an environment with registry access:
 
 ```bash
-scripts/pull_containers.sh \
-  --output-dir "$SCRATCH/metagenomics_containers"
+CONTAINER_DIR=/shared/metagenomics/containers
+
+bash scripts/pull_containers.sh \
+  --output-dir "$CONTAINER_DIR"
 ```
 
-Then pass that directory to every run:
+Then pass the local directory to every analysis run:
 
 ```bash
---container-dir "$SCRATCH/metagenomics_containers"
+--container-dir "$CONTAINER_DIR"
 ```
 
-The workflow refers directly to local `.sif` files. Nextflow is therefore not expected to contact a container registry from a compute node.
+The workflow refers directly to local `.sif` files, so analysis jobs do not need to contact a container registry.
 
-## Large reference directories
+## Large references and databases
 
-The STAR, Kraken2 and Kaiju database directories are kept on shared storage and passed as absolute paths. The Singularity configuration explicitly binds those directories into each container rather than staging hundreds of gigabytes into individual Nextflow work directories.
+The STAR, Kraken2, and Kaiju directories remain on shared storage and are passed as paths. Container profiles bind those locations rather than copying hundreds of gigabytes into individual Nextflow work directories.
+
+Example layout:
+
+```text
+/shared/metagenomics/
+├── containers/
+├── databases/
+│   ├── kraken2/pluspf/
+│   └── kaiju/nr_euk/
+└── results/
+
+/shared/references/
+└── GRCh38_STAR/
+```
+
+These paths are examples only; the public workflow does not hard-code a site filesystem layout.
 
 ## Launch pattern
 
-Load Nextflow and Singularity/Apptainer in the submission environment, then use the small orchestration job. The runner detects the available container command and selects the matching Nextflow profile:
+The normal runner can be launched directly:
+
+```bash
+bash scripts/run_pipeline.sh \
+  --profile slurm \
+  --input /path/to/samplesheet.csv \
+  --host-index /shared/references/GRCh38_STAR \
+  --kraken2-db /shared/metagenomics/databases/kraken2/pluspf \
+  --kaiju-db /shared/metagenomics/databases/kaiju/nr_euk \
+  --container-dir /shared/metagenomics/containers \
+  --outdir /shared/metagenomics/results/run01
+```
+
+Or use the lightweight orchestration wrapper so the Nextflow controller itself runs under SLURM:
 
 ```bash
 sbatch scripts/submit_pipeline.sbatch \
-  --input /path/samplesheet.csv \
-  --host-index /shared/ref/GRCh38_STAR \
-  --kraken2-db /shared/db/kraken2/pluspf \
-  --kaiju-db /shared/db/kaiju/nr_euk \
-  --container-dir /shared/containers \
-  --outdir /shared/results/run01
+  --input /path/to/samplesheet.csv \
+  --host-index /shared/references/GRCh38_STAR \
+  --kraken2-db /shared/metagenomics/databases/kraken2/pluspf \
+  --kaiju-db /shared/metagenomics/databases/kaiju/nr_euk \
+  --container-dir /shared/metagenomics/containers \
+  --outdir /shared/metagenomics/results/run01
 ```
 
 The orchestration job runs Nextflow; Nextflow submits the computational processes as separate SLURM jobs.
+
+## Site-specific settings
+
+No account, partition, username, or private path is stored in the public configuration. Scheduler-specific settings should be supplied in an additional Nextflow config:
+
+```bash
+bash scripts/run_pipeline.sh ... --config /path/to/site.config
+```
+
+See `assets/cluster.config.example` for a minimal template.
